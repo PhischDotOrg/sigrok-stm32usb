@@ -68,7 +68,6 @@ class Decoder(srd.Decoder):
 
     def start(self):
         self.out_ann = self.register(srd.OUTPUT_ANN)
-        print("PhS: start()")
 
         # self.out_python = self.register(srd.OUTPUT_PYTHON)
         # self.out_binary = self.register(srd.OUTPUT_BINARY)
@@ -76,16 +75,12 @@ class Decoder(srd.Decoder):
         #         meta=(int, 'Bitrate', 'Bitrate from Start bit to Stop bit'))
 
     def reset(self):
-        print("PhS: reset()")
         self._initialize()
 
     def decode(self):
-        print("PhS: decode()")
-
         while True:
-            if self._firstChunk == True:
+            if self._cur == -1:
                 pins = self.wait()
-                self._firstChunk = False
             else:
                 pins = self.wait( [
                     { 0 : 'e' },
@@ -93,51 +88,43 @@ class Decoder(srd.Decoder):
                     { 2 : 'e' }
                 ] )
 
-            self._startsample = self._endsample
-            self._endsample = self.samplenum
+                self._begin = self._end
+                self._end = self.samplenum
 
-            idx = 1 * pins[0] + 2 * pins[1] + 4 * pins[2]
-
-            print("decode(): _startsample: ", self._startsample, " _endsample: ", self._endsample, " _idx: ", self._idx, " idx: ", idx)
-            print("decode(): startsample: ", self.startsample, " endsample: ", self.endsample, " _idx: ", self._idx)
+            self._old = self._cur
+            self._cur = 1 * pins[0] + 2 * pins[1] + 4 * pins[2]
 
             self._putDecodedData()
 
-            self._idx = idx
-
     def flush(self):
-        print("PhS: flush()")
-
-        self._startsample = self._endsample
-        self._endsample = self.endsample
-
-        print("flush(): _startsample: ", self._startsample, " _endsample: ", self._endsample, " _idx: ", self._idx)
-        print("flush(): startsample: ", self.startsample, " endsample: ", self.endsample, " _idx: ", self._idx)
+        # flush() is called when a block of data ends, including the very last block
+        # of the stream.
+        # If there is no change in data (_old == _cur), then don't update the begin
+        # marker of the block that we're going to display.
+        if (self._old != self._cur):
+            self._begin = self._end
+        self._end = self.endsample
+        self._old = self._cur
 
         self._putDecodedData()
 
-        self._firstChunk = True
-
     def metadata(self, key, value):
-        print("PhS: metadata()")
-
         if key == srd.SRD_CONF_SAMPLERATE:
             self.samplerate = value
 
     def _initialize(self):
-        self._firstChunk = True
-
-        self._startsample = 0
-        self._endsample = 0
-        self._idx = -1
+        self._begin = 0
+        self._end = 0
+        self._cur = -1
+        self._old = -1
 
     def _putDecodedData(self):
-        if (self._idx == -1):
-            return
-
-        self.put(
-            self._startsample,
-            self._endsample,
-            self.out_ann,
-            Decoder._values[self._idx]
-        )
+        # self._old contains the index that is to be displayed.
+        # In the first sample, the idx will be -1 so don't display.
+        if (self._old != -1):
+            self.put(
+                self._begin,
+                self._end,
+                self.out_ann,
+                Decoder._values[self._old]
+            )
